@@ -4,7 +4,13 @@
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs"
+    "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs",
+    "check:semantic": "node semantic-lint.mjs",
+    "test": "node --test semantic-lint.test.mjs"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
+    "yaml": "2.8.2"
   },
   "devDependencies": {
     "markdownlint-cli2": "0.23.3",

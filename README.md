@@ -15,4 +15,19 @@ Relative Markdown links and images must resolve to local files, and fragments ta
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
+pnpm test
 ```
+
+`pnpm check` is the deterministic Markdown check. It makes no model requests and does not require `TYPESAFE_API_KEY`.
+
+## Advisory semantic check
+
+```sh
+TYPESAFE_API_KEY=... pnpm check:semantic
+```
+
+`check:semantic` is a separate paid, networked check. It finds every `SKILL.md` in the repository, skips skills whose YAML frontmatter sets `disable-model-invocation: true`, and evaluates implicit-routing metadata with the exact pinned model `jev-1.13.0`. Each applicable skill causes one request containing only its frontmatter `name` and `description`; skill bodies, paths, other frontmatter, and repository context are not sent.
+
+The four independent judgments check whether capability and activation guidance are each present and specific. Findings and uncertain results are printed with raw probabilities as advisory diagnostics and exit successfully. Invalid applicable metadata, missing credentials, and provider failures exit nonzero. The final receipt reports the returned model identity, aggregate input/output tokens, and evaluated/skipped counts.
+
+`pnpm test` uses a fake client and makes no paid or live requests.
