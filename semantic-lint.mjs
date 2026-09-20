@@ -133,9 +133,14 @@ export async function runSemanticLint({ root, client, stdout = console.log, stde
   const models = new Set();
 
   try {
+    const skills = [];
     for (const path of await discoverSkills(root)) {
       const displayPath = relative(root, path);
       const metadata = readSkillMetadata(await readFile(path, "utf8"), displayPath);
+      skills.push({ displayPath, metadata });
+    }
+
+    for (const { displayPath, metadata } of skills) {
       if (metadata.skipped) {
         skipped++;
         stdout(`SKIP ${displayPath}: disable-model-invocation is true`);

@@ -172,8 +172,11 @@ test("specificity unknowns remain visible when presence passes", async (t) => {
   assert(out.lines.some((line) => /UNKNOWN .*activation_is_specific p=0\.4/.test(line)));
 });
 
-test("malformed applicable metadata is fatal without a request", async (t) => {
-  const root = await fixture({ "skills/broken/SKILL.md": skill("name: [broken\ndescription: nope") });
+test("all applicable metadata is validated before any request", async (t) => {
+  const root = await fixture({
+    "skills/a-valid/SKILL.md": skill("name: valid\ndescription: Valid routing metadata."),
+    "skills/z-broken/SKILL.md": skill("name: [broken\ndescription: nope"),
+  });
   t.after(() => rm(root, { recursive: true, force: true }));
   let called = false;
   const errors = output();
