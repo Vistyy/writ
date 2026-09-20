@@ -4,12 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs",
-    "test": "node --test"
+    "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs"
   },
   "devDependencies": {
-    "entities": "8.1.0",
-    "markdownlint": "0.41.1",
-    "markdownlint-cli2": "0.23.3"
+    "markdownlint-cli2": "0.23.3",
+    "markdownlint-rule-relative-links": "5.1.2"
   }
 }
