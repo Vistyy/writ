@@ -6,17 +6,7 @@ The configured scope includes `AGENTS.md`, optional Pi system-prompt files, skil
 
 `markdownlint` provides the parser and rules. `markdownlint-cli2` is the command-line runner that discovers files, loads the configuration, formats diagnostics, and sets the exit status. Both resolve to one installed copy of `markdownlint`; they are not old and new versions of the same package.
 
-Only these checks are enabled:
-
-| Rule | Rejected input |
-| --- | --- |
-| [`MD001`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md001.md) | A heading that skips to a deeper level |
-| [`MD011`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md011.md) | Reversed link syntax such as `(text)[target]` |
-| [`MD018`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md018.md) | An ATX heading without a space after `#` |
-| [`MD042`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md042.md) | A link with no destination |
-| [`MD051`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md051.md) | A same-file fragment that has no matching anchor |
-| [`MD052`](https://github.com/DavidAnson/markdownlint/blob/main/doc/md052.md) | A reference link or image with no definition |
-| `local-links-exist` | A concrete relative file or image destination that does not exist |
+The enabled rules and their purposes are documented inline in `.markdownlint-cli2.mjs`. The complete built-in catalog is in the [markdownlint rule documentation](https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md).
 
 The local rule checks the file portion of cross-file fragment links, but not external URLs or whether the cross-file fragment exists. Two links in `skills/domain-modeling/references/GLOSSARY-FORMAT.md` are excluded by exact source and destination because they intentionally demonstrate fictional bounded contexts; the rest of that file is still checked.
 
