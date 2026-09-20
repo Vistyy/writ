@@ -28,15 +28,66 @@ function output() {
   return { lines, write: (line) => lines.push(line) };
 }
 
-test("discovers repository SKILL.md files in stable order and ignores dependencies", async (t) => {
+test("questions exactly implement the calibrated name-plus-description contract", () => {
+  assert.deepEqual(QUESTIONS, {
+    capability_is_stated: {
+      type: "noul",
+      instructions: "Do `skill.name` and `skill.description` state what capability this skill provides?",
+      criteria: {
+        true: "They state an action the skill performs, a judgment it makes, knowledge it supplies, or an outcome it produces.",
+        false: "They state only a topic, persona, aspiration, or invocation condition without saying what the skill contributes.",
+      },
+    },
+    capability_is_specific: {
+      type: "noul",
+      instructions: "Do `skill.name` and `skill.description` identify a capability specific enough to distinguish this skill from a generic assistant?",
+      criteria: {
+        true: "They identify a bounded action, judgment, knowledge, or outcome.",
+        false: "They provide only generic help, guidance, expertise, quality improvement, a topic, persona, aspiration, or invocation condition.",
+      },
+    },
+    activation_is_stated: {
+      type: "noul",
+      instructions: "Do `skill.name` and `skill.description` identify at least one task, input, artifact, event, or condition in which this skill is relevant?",
+      criteria: {
+        true: "They name a recognizable task, input, artifact, event, or condition for using the skill.",
+        false: "They provide no activation information, or only circular wording such as 'when needed', 'when appropriate', or 'when using this skill'.",
+      },
+    },
+    activation_is_specific: {
+      type: "noul",
+      instructions: "Do `skill.name` and `skill.description` identify an activation condition specific enough for an agent to decide whether a user request should invoke this skill?",
+      criteria: {
+        true: "They identify a recognizable user intent, task, input, artifact, event, or condition that makes the skill relevant.",
+        false: "They name only a broad domain or category, or use vague or circular activation wording.",
+      },
+    },
+  });
+});
+
+test("discovers nested skills only in repository-owned instruction roots", async (t) => {
   const root = await fixture({
-    "z/SKILL.md": "",
-    "a/nested/SKILL.md": "",
+    "skills/z/SKILL.md": "",
+    "skills/a/nested/SKILL.md": "",
+    "user-skills/local/SKILL.md": "",
+    "workgraph/skills/leaked/SKILL.md": "",
     "node_modules/pkg/SKILL.md": "",
-    "a/OTHER.md": "",
+    "other/SKILL.md": "",
   });
   t.after(() => rm(root, { recursive: true, force: true }));
-  assert.deepEqual((await discoverSkills(root)).map((path) => path.slice(root.length + 1)), ["a/nested/SKILL.md", "z/SKILL.md"]);
+  assert.deepEqual((await discoverSkills(root)).map((path) => path.slice(root.length + 1)), [
+    "skills/a/nested/SKILL.md",
+    "skills/z/SKILL.md",
+    "user-skills/local/SKILL.md",
+  ]);
+});
+
+test("discovery tolerates either or both instruction roots being absent", async (t) => {
+  const oneRoot = await fixture({ "skills/only/SKILL.md": "" });
+  const noRoots = await fixture({ "elsewhere/SKILL.md": "" });
+  t.after(() => Promise.all([rm(oneRoot, { recursive: true, force: true }), rm(noRoots, { recursive: true, force: true })]));
+  assert.deepEqual((await discoverSkills(oneRoot)).map((path) => path.slice(oneRoot.length + 1)), ["skills/only/SKILL.md"]);
+  assert.deepEqual(await discoverSkills(noRoots), []);
 });
 
 test("robust YAML parsing handles folded descriptions and exemption before required fields", () => {
@@ -82,46 +133,47 @@ test("classification preserves inclusive threshold boundaries", () => {
 });
 
 test("findings and unknowns are advisory, raw, actionable, and obey missing precedence", async (t) => {
-  const root = await fixture({ "SKILL.md": skill("name: vague\ndescription: Helpful things.") });
+  const root = await fixture({ "skills/vague/SKILL.md": skill("name: vague\ndescription: Helpful things.") });
   t.after(() => rm(root, { recursive: true, force: true }));
   const out = output();
   const code = await runSemanticLint({
     root,
     client: { systemOne: async () => response({
-      capability_stated: 0.2,
-      capability_specific: 0.1,
-      activation_stated: 0.3333333333333333,
-      activation_specific: 0.5,
+      capability_is_stated: 0.2,
+      capability_is_specific: 0.1,
+      activation_is_stated: 0.3333333333333333,
+      activation_is_specific: 0.5,
     }) },
     stdout: out.write,
     stderr: out.write,
   });
 
   assert.equal(code, 0);
-  assert(out.lines.some((line) => /FINDING .*capability_stated p=0\.2: Add/.test(line)));
-  assert(out.lines.some((line) => /FINDING .*activation_stated p=0\.3333333333333333: Add/.test(line)));
-  assert(!out.lines.some((line) => line.includes("capability_specific")));
-  assert(!out.lines.some((line) => line.includes("activation_specific")));
+  assert(out.lines.some((line) => /FINDING .*capability_is_stated p=0\.2: State/.test(line)));
+  assert(out.lines.some((line) => /FINDING .*activation_is_stated p=0\.3333333333333333: Name a concrete task, input, artifact, event, or condition/.test(line)));
+  assert(!out.lines.some((line) => line.includes("capability_is_specific")));
+  assert(!out.lines.some((line) => line.includes("activation_is_specific")));
   assert(out.lines.some((line) => line.includes("[advisory]")));
+  assert.doesNotMatch(out.lines.join("\n"), /Use when|when not to use|exclusion/i);
 });
 
 test("specificity unknowns remain visible when presence passes", async (t) => {
-  const root = await fixture({ "SKILL.md": skill("name: broad\ndescription: Use this to help.") });
+  const root = await fixture({ "skills/broad/SKILL.md": skill("name: broad\ndescription: Use this to help.") });
   t.after(() => rm(root, { recursive: true, force: true }));
   const out = output();
   const code = await runSemanticLint({
     root,
-    client: { systemOne: async () => response({ capability_specific: 0.5, activation_specific: 0.4 }) },
+    client: { systemOne: async () => response({ capability_is_specific: 0.5, activation_is_specific: 0.4 }) },
     stdout: out.write,
     stderr: out.write,
   });
   assert.equal(code, 0);
-  assert(out.lines.some((line) => /UNKNOWN .*capability_specific p=0\.5/.test(line)));
-  assert(out.lines.some((line) => /UNKNOWN .*activation_specific p=0\.4/.test(line)));
+  assert(out.lines.some((line) => /UNKNOWN .*capability_is_specific p=0\.5/.test(line)));
+  assert(out.lines.some((line) => /UNKNOWN .*activation_is_specific p=0\.4/.test(line)));
 });
 
 test("malformed applicable metadata is fatal without a request", async (t) => {
-  const root = await fixture({ "SKILL.md": skill("name: [broken\ndescription: nope") });
+  const root = await fixture({ "skills/broken/SKILL.md": skill("name: [broken\ndescription: nope") });
   t.after(() => rm(root, { recursive: true, force: true }));
   let called = false;
   const errors = output();
@@ -136,8 +188,22 @@ test("malformed applicable metadata is fatal without a request", async (t) => {
   assert.match(errors.lines[0], /invalid YAML frontmatter/);
 });
 
+test("a returned model identity other than the exact pinned model is fatal", async (t) => {
+  const root = await fixture({ "skills/valid/SKILL.md": skill("name: valid\ndescription: Run semantic routing checks.") });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const errors = output();
+  const code = await runSemanticLint({
+    root,
+    client: { systemOne: async () => ({ ...response(), model: "jev-1.13.1" }) },
+    stdout: () => {},
+    stderr: errors.write,
+  });
+  assert.equal(code, 1);
+  assert.deepEqual(errors.lines, ["ERROR response model identity must be exactly jev-1.13.0; received jev-1.13.1"]);
+});
+
 test("provider failures are fatal", async (t) => {
-  const root = await fixture({ "SKILL.md": skill("name: valid\ndescription: Use when testing failures.") });
+  const root = await fixture({ "skills/valid/SKILL.md": skill("name: valid\ndescription: Use when testing failures.") });
   t.after(() => rm(root, { recursive: true, force: true }));
   const errors = output();
   const code = await runSemanticLint({

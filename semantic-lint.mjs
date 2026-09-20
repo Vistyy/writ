@@ -5,62 +5,66 @@ import { parse } from "yaml";
 
 export const MODEL = "jev-1.13.0";
 export const QUESTIONS = Object.freeze({
-  capability_stated: {
+  capability_is_stated: {
     type: "noul",
-    instructions: "Does `skill.description` state what capability the skill provides?",
+    instructions: "Do `skill.name` and `skill.description` state what capability this skill provides?",
     criteria: {
-      true: "It states a task the skill performs or an outcome it helps produce.",
-      false: "It does not state a capability; a name, topic, value, or vague identity alone is not a capability.",
+      true: "They state an action the skill performs, a judgment it makes, knowledge it supplies, or an outcome it produces.",
+      false: "They state only a topic, persona, aspiration, or invocation condition without saying what the skill contributes.",
     },
   },
-  capability_specific: {
+  capability_is_specific: {
     type: "noul",
-    instructions: "Is the capability stated in `skill.description` specific enough to distinguish this skill from generic assistant help?",
+    instructions: "Do `skill.name` and `skill.description` identify a capability specific enough to distinguish this skill from a generic assistant?",
     criteria: {
-      true: "It names concrete tasks, outcomes, or a bounded domain that distinguishes the capability.",
-      false: "The capability is absent, generic, or broad, such as helping, coding, researching, or writing without a distinguishing task or outcome.",
+      true: "They identify a bounded action, judgment, knowledge, or outcome.",
+      false: "They provide only generic help, guidance, expertise, quality improvement, a topic, persona, aspiration, or invocation condition.",
     },
   },
-  activation_stated: {
+  activation_is_stated: {
     type: "noul",
-    instructions: "Does `skill.description` state when the agent should use the skill?",
+    instructions: "Do `skill.name` and `skill.description` identify at least one task, input, artifact, event, or condition in which this skill is relevant?",
     criteria: {
-      true: "It states user intents, situations, conditions, or triggers for activating the skill.",
-      false: "It only describes what the skill does, or otherwise gives no activation condition.",
+      true: "They name a recognizable task, input, artifact, event, or condition for using the skill.",
+      false: "They provide no activation information, or only circular wording such as 'when needed', 'when appropriate', or 'when using this skill'.",
     },
   },
-  activation_specific: {
+  activation_is_specific: {
     type: "noul",
-    instructions: "Is the activation guidance in `skill.description` specific enough for an agent to decide whether to use the skill?",
+    instructions: "Do `skill.name` and `skill.description` identify an activation condition specific enough for an agent to decide whether a user request should invoke this skill?",
     criteria: {
-      true: "It gives actionable matching conditions, boundaries, or exclusions that distinguish when to use the skill.",
-      false: "The activation guidance is absent, generic, or broad enough to apply to routine work indiscriminately.",
+      true: "They identify a recognizable user intent, task, input, artifact, event, or condition that makes the skill relevant.",
+      false: "They name only a broad domain or category, or use vague or circular activation wording.",
     },
   },
 });
 
 const ASPECTS = [
-  ["capability_stated", "Add a sentence stating the capability this skill provides."],
-  ["capability_specific", "Name concrete tasks, outcomes, or a bounded domain for this capability."],
-  ["activation_stated", "Add a clear condition such as “Use when …”."],
-  ["activation_specific", "Give actionable activation triggers or boundaries, including when not to use it where useful."],
+  ["capability_is_stated", "State the action, judgment, knowledge, or outcome this skill provides."],
+  ["capability_is_specific", "Name a bounded action, judgment, knowledge, or outcome for this capability."],
+  ["activation_is_stated", "Name a concrete task, input, artifact, event, or condition where this skill is relevant."],
+  ["activation_is_specific", "Identify a recognizable user intent, task, input, artifact, event, or condition that triggers this skill."],
 ];
-
-const ignoredDirectories = new Set([".git", "node_modules"]);
 
 export async function discoverSkills(root) {
   const found = [];
   async function visit(directory) {
-    const entries = await readdir(directory, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
     for (const entry of entries) {
-      if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
+      if (entry.isDirectory()) {
         await visit(resolve(directory, entry.name));
       } else if (entry.isFile() && entry.name === "SKILL.md") {
         found.push(resolve(directory, entry.name));
       }
     }
   }
-  await visit(root);
+  await Promise.all([visit(resolve(root, "skills")), visit(resolve(root, "user-skills"))]);
   return found.sort();
 }
 
@@ -110,8 +114,8 @@ function diagnostics(answers) {
   }));
 
   const suppressed = new Set();
-  if (results.capability_stated.classification === "finding") suppressed.add("capability_specific");
-  if (results.activation_stated.classification === "finding") suppressed.add("activation_specific");
+  if (results.capability_is_stated.classification === "finding") suppressed.add("capability_is_specific");
+  if (results.activation_is_stated.classification === "finding") suppressed.add("activation_is_specific");
   const issues = ASPECTS.flatMap(([id, action]) => {
     const result = results[id];
     return result.classification === "pass" || suppressed.has(id)
@@ -143,7 +147,9 @@ export async function runSemanticLint({ root, client, stdout = console.log, stde
         state: { skill: metadata.skill },
         questions: QUESTIONS,
       });
-      if (typeof response?.model !== "string" || !response.model) throw new Error("response omitted model identity");
+      if (response?.model !== MODEL) {
+        throw new Error(`response model identity must be exactly ${MODEL}; received ${String(response?.model)}`);
+      }
       if (!Number.isFinite(response.usage?.input_tokens) || !Number.isFinite(response.usage?.output_tokens)) {
         throw new Error("response omitted token usage");
       }
