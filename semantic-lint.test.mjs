@@ -62,6 +62,14 @@ test("questions exactly implement the calibrated name-plus-description contract"
         false: "They name only a broad domain or category, or use vague or circular activation wording.",
       },
     },
+    routing_metadata_is_focused: {
+      type: "noul",
+      instructions: "Do `skill.name` and `skill.description` stay focused on identifying the skill's capability and deciding whether it is relevant?",
+      criteria: {
+        true: "They contain capability, activation conditions, meaningful non-matches, or brief domain context needed to distinguish the skill.",
+        false: "They tell the invoked agent how to do the work, such as directing it to read documentation, run commands, follow steps, or apply an implementation method, or include extended examples or rationale not needed for routing.",
+      },
+    },
   });
 });
 
@@ -155,6 +163,22 @@ test("findings and unknowns are advisory, raw, actionable, and obey missing prec
   assert(!out.lines.some((line) => line.includes("activation_is_specific")));
   assert(out.lines.some((line) => line.includes("[advisory]")));
   assert.doesNotMatch(out.lines.join("\n"), /Use when|when not to use|exclusion/i);
+});
+
+test("routing focus findings are advisory and actionable", async (t) => {
+  const root = await fixture({
+    "skills/procedural/SKILL.md": skill("name: procedural\ndescription: Reviews APIs. Use for API work. First read every document, then run all commands."),
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const out = output();
+  const code = await runSemanticLint({
+    root,
+    client: { systemOne: async () => response({ routing_metadata_is_focused: 0.2 }) },
+    stdout: out.write,
+    stderr: out.write,
+  });
+  assert.equal(code, 0);
+  assert(out.lines.some((line) => /FINDING .*routing_metadata_is_focused p=0\.2: Keep the description to capability and routing; move post-invocation procedure into the skill body\. \[advisory\]/.test(line)));
 });
 
 test("specificity unknowns remain visible when presence passes", async (t) => {

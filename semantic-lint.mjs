@@ -37,6 +37,14 @@ export const QUESTIONS = Object.freeze({
       false: "They name only a broad domain or category, or use vague or circular activation wording.",
     },
   },
+  routing_metadata_is_focused: {
+    type: "noul",
+    instructions: "Do `skill.name` and `skill.description` stay focused on identifying the skill's capability and deciding whether it is relevant?",
+    criteria: {
+      true: "They contain capability, activation conditions, meaningful non-matches, or brief domain context needed to distinguish the skill.",
+      false: "They tell the invoked agent how to do the work, such as directing it to read documentation, run commands, follow steps, or apply an implementation method, or include extended examples or rationale not needed for routing.",
+    },
+  },
 });
 
 const ASPECTS = [
@@ -44,6 +52,7 @@ const ASPECTS = [
   ["capability_is_specific", "Name a bounded action, judgment, knowledge, or outcome for this capability."],
   ["activation_is_stated", "Name a concrete task, input, artifact, event, or condition where this skill is relevant."],
   ["activation_is_specific", "Identify a recognizable user intent, task, input, artifact, event, or condition that triggers this skill."],
+  ["routing_metadata_is_focused", "Keep the description to capability and routing; move post-invocation procedure into the skill body."],
 ];
 
 export async function discoverSkills(root) {
