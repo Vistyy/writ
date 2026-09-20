@@ -1,0 +1,12 @@
+{
+  "name": "pi-agent-instruction-lint",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.3"
+  }
+}
