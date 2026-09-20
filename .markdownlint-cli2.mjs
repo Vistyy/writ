@@ -4,10 +4,8 @@ export default {
   config: {
     default: false,
     MD001: true,
-    MD005: true,
     MD011: true,
     MD018: true,
-    MD023: true,
     MD042: true,
     MD051: true,
     MD052: true,

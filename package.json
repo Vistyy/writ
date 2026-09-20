@@ -8,6 +8,7 @@
     "test": "node --test"
   },
   "devDependencies": {
+    "entities": "8.1.0",
     "markdownlint": "0.41.1",
     "markdownlint-cli2": "0.23.3"
   }

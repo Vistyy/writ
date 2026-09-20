@@ -11,6 +11,7 @@ async function lintFixture(markdown, ruleConfig = true) {
   const source = join(directory, "source.md");
   await writeFile(source, markdown);
   await writeFile(join(directory, "target.md"), "# Target\n");
+  await writeFile(join(directory, "target&name.md"), "# Encoded target\n");
 
   try {
     const results = await lint({
@@ -27,6 +28,9 @@ async function lintFixture(markdown, ruleConfig = true) {
 test("reports missing concrete local destinations", async () => {
   const errors = await lintFixture([
     "[existing](target.md)",
+    "[encoded](target&amp;name.md)",
+    "[existing fragment](target.md#missing)",
+    "[missing fragment](missing-fragment.md#anchor)",
     "[missing](missing.md)",
     "![missing image](missing.png)",
     "[reference][target]",
@@ -39,11 +43,15 @@ test("reports missing concrete local destinations", async () => {
   assert.deepEqual(
     errors.map(({ errorDetail, lineNumber }) => ({ errorDetail, lineNumber })),
     [
-      { errorDetail: "Missing local destination: missing.md", lineNumber: 2 },
-      { errorDetail: "Missing local destination: missing.png", lineNumber: 3 },
+      {
+        errorDetail: "Missing local destination: missing-fragment.md#anchor",
+        lineNumber: 4,
+      },
+      { errorDetail: "Missing local destination: missing.md", lineNumber: 5 },
+      { errorDetail: "Missing local destination: missing.png", lineNumber: 6 },
       {
         errorDetail: "Missing local destination: missing-reference.md",
-        lineNumber: 8,
+        lineNumber: 11,
       },
     ],
   );

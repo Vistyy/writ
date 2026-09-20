@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
+import { decodeHTML } from "entities";
 
 const externalDestination = /^(?:[a-z][a-z\d+.-]*:|\/\/|[/\\~])/iu;
 const nonConcreteDestination = /[<>*{}\[\]$]/u;
@@ -39,9 +40,16 @@ function descendants(token) {
 }
 
 function destinationText(token) {
-  const text = descendants(token)
-    .filter((child) => child.type === "characterEscapeValue" || child.type === "data")
-    .map((child) => child.text)
+  const text = (token.children ?? [])
+    .map((child) => {
+      if (child.type === "characterReference") {
+        return decodeHTML(child.text);
+      }
+      if (child.type === "characterEscapeValue" || child.type === "data") {
+        return child.text;
+      }
+      return destinationText(child);
+    })
     .join("");
   return text || token.text;
 }
