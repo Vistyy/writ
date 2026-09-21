@@ -99,6 +99,10 @@ pnpm check
 
 `pnpm check` runs offline tests, validates package metadata and packed contents, and installs the packed tarball into a temporary consumer to smoke-test the actual `writ` bin for help, version, and deterministic checking.
 
+## Releasing
+
+Releases use npm trusted publishing from a matching `v<version>` tag. See [RELEASING.md](RELEASING.md) for the maintained procedure and publisher identity.
+
 ## License
 
 MIT
