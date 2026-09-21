@@ -9,7 +9,7 @@ pnpm install --frozen-lockfile
 pnpm check
 pnpm test
 TYPESAFE_API_KEY=... pnpm check:semantic
-TYPESAFE_API_KEY=... pnpm check:references
+pnpm check:references # TYPESAFE_API_KEY is needed only if semantic requests remain after deterministic checks
 TYPESAFE_API_KEY=... pnpm check:questions
 ```
 
@@ -37,9 +37,9 @@ Five independent Noul judgments cover capability and activation presence/specifi
 - every `skills/**/*.md`
 - every `user-skills/**/*.md`
 
-It uses `markdown-it` parsed tokens and source maps to find relative local Markdown links and backticked relative `.md` paths. Fenced and indented code, frontmatter, external URLs, absolute URLs/paths, hash-only links, invalid targets, and non-path code such as literal `.md` are excluded. Targets resolve relative to the source file; fragments are retained for the semantic occurrence but stripped for filesystem existence checks. Diagnostics identify the local source path and line.
+It uses `markdown-it` parsed tokens and source maps to find relative local Markdown links and backticked relative `.md` paths, including occurrences in table cells. Table occurrences use their enclosing parsed row as the instruction span. Fenced and indented code, frontmatter, external URLs, absolute URLs/paths, hash-only links, invalid targets, and non-path code such as literal `.md` are excluded. Targets resolve relative to the source file; fragments are retained for the semantic occurrence but stripped for filesystem existence checks. Diagnostics identify each occurrence's local source path and line.
 
-All files and targets are checked deterministically before requests. A missing Markdown link is fatal and prevents every paid request. A missing backticked path is semantically judged for whether the instruction expects it to exist. Existing links and backticks receive the consultation and scoped-trigger judgments together. Independent questions for one source file are batched into one `systemOne` request using exact model `jev-1.13.0`.
+All files and targets are checked deterministically before requests. A missing Markdown link is fatal and prevents every paid request. A missing backticked path is semantically judged for whether the instruction expects it to exist. Existing links and backticks receive the consultation and scoped-trigger judgments together. Independent questions for one source file are batched into one `systemOne` request using exact model `jev-1.13.0`. The SDK client and its credential requirement are deferred until the first such request; zero scoped files, zero occurrences, and deterministic missing-link failures need no API key.
 
 The privacy boundary is strict: shared request state is the empty string, local source paths and repository context are not sent, and referenced targets are checked with filesystem metadata rather than opened for an occurrence. No referenced target content is read or sent. Each generated question contains only its occurrence's heading, instruction span, exact link text/target, and relative path as applicable.
 

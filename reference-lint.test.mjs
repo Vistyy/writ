@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { REFERENCE_MODEL, discoverInstructionMarkdown, extractReferenceOccurrences, resolveOccurrenceTarget, runReferenceLint } from "./reference-lint.mjs";
+import { REFERENCE_MODEL, discoverInstructionMarkdown, extractReferenceOccurrences, main, resolveOccurrenceTarget, runReferenceLint } from "./reference-lint.mjs";
 import { REFERENCE_CONTRACTS, REFERENCE_DEPENDENCIES, consultationQuestion, expectedExistingQuestion, triggerQuestion, validateReferenceContracts } from "./reference-contracts.mjs";
 
 async function fixture(files) {
@@ -37,6 +37,46 @@ test("markdown-it extraction uses headings and source maps for paragraphs and li
   ]);
 });
 
+test("attributes repeated and multiline parsed link forms to their own source lines", () => {
+  const source = `# References
+Repeated [guide](docs/guide.md).
+Repeated [guide](docs/guide.md).
+Paths \`docs/path.md\` here.
+Paths \`docs/path.md\` again.
+Label guide appears before the multiline [guide](
+  docs/multiline.md
+).
+Reference [full][manual], [collapsed][], [shortcut], [angle](<docs/auto.md>), and <https://example.com/file.md>.
+
+[manual]: docs/full.md
+[collapsed]: docs/collapsed.md
+[shortcut]: docs/shortcut.md
+`;
+  assert.deepEqual(extractReferenceOccurrences(source).map(({ kind, line, target }) => ({ kind, line, target })), [
+    { kind: "link", line: 2, target: "docs/guide.md" },
+    { kind: "link", line: 3, target: "docs/guide.md" },
+    { kind: "backtick", line: 4, target: "docs/path.md" },
+    { kind: "backtick", line: 5, target: "docs/path.md" },
+    { kind: "link", line: 6, target: "docs/multiline.md" },
+    { kind: "link", line: 9, target: "docs/full.md" },
+    { kind: "link", line: 9, target: "docs/collapsed.md" },
+    { kind: "link", line: 9, target: "docs/shortcut.md" },
+    { kind: "link", line: 9, target: "docs/auto.md" },
+  ]);
+});
+
+test("extracts table-cell links and backticks with row spans and heading context", () => {
+  const source = `# Matrix
+| Action | Reference |
+| --- | --- |
+| Read | [guide](docs/guide.md) and \`docs/runbook.md\` |
+`;
+  assert.deepEqual(extractReferenceOccurrences(source).map(({ kind, line, heading, span, target }) => ({ kind, line, heading, span, target })), [
+    { kind: "link", line: 4, heading: "Matrix", span: "| Read | [guide](docs/guide.md) and `docs/runbook.md` |", target: "docs/guide.md" },
+    { kind: "backtick", line: 4, heading: "Matrix", span: "| Read | [guide](docs/guide.md) and `docs/runbook.md` |", target: "docs/runbook.md" },
+  ]);
+});
+
 test("resolves targets relative to source and strips fragments", () => {
   assert.equal(resolveOccurrenceTarget("/repo/skills/x/SKILL.md", { path: "../shared.md#part" }), "/repo/skills/shared.md");
 });
@@ -64,6 +104,38 @@ test("missing Markdown links are fatal before network", async (t) => {
   let called = false; const out = output();
   assert.equal(await runReferenceLint({ root, client: { systemOne: async () => { called = true; } }, stdout: out.write, stderr: out.write }), 1);
   assert.equal(called, false); assert.match(out.lines[0], /^ERROR AGENTS\.md:1 missing Markdown link target docs\/missing\.md/);
+});
+
+test("missing Markdown links in tables are fatal across all files before client construction", async (t) => {
+  const root = await fixture({
+    "AGENTS.md": "Read `existing.md`.\n",
+    "existing.md": "ok\n",
+    "skills/z/SKILL.md": "| Reference |\n| --- |\n| [missing](docs/missing.md) |\n",
+  }); t.after(() => rm(root, { recursive: true, force: true }));
+  let factories = 0; const out = output();
+  assert.equal(await main({ root, createClient: async () => { factories++; return { systemOne: async () => assert.fail("paid request") }; }, stdout: out.write, stderr: out.write }), 1);
+  assert.equal(factories, 0);
+  assert.match(out.lines[0], /^ERROR skills\/z\/SKILL\.md:3 missing Markdown link target docs\/missing\.md/);
+});
+
+test("CLI boundary defers client construction for zero work and constructs it once before paid requests", async (t) => {
+  const roots = [
+    [await fixture({ "elsewhere/x.md": "ignored\n" }), "RECEIPT model=none files=0 occurrences=0 requests=0 input_tokens=0 output_tokens=0"],
+    [await fixture({ "AGENTS.md": "No references.\n" }), "RECEIPT model=none files=1 occurrences=0 requests=0 input_tokens=0 output_tokens=0"],
+  ];
+  for (const [root, receipt] of roots) {
+    t.after(() => rm(root, { recursive: true, force: true }));
+    let factories = 0; const out = output();
+    assert.equal(await main({ root, createClient: async () => { factories++; throw new Error("credentials required"); }, stdout: out.write, stderr: out.write }), 0);
+    assert.equal(factories, 0);
+    assert.equal(out.lines.at(-1), receipt);
+  }
+
+  const root = await fixture({ "AGENTS.md": "Read `one.md`.\n", "skills/x/SKILL.md": "Read `two.md`.\n" }); t.after(() => rm(root, { recursive: true, force: true }));
+  let factories = 0; const requests = []; const out = output();
+  assert.equal(await main({ root, createClient: async () => { factories++; return { systemOne: async (request) => (requests.push(request), response(request)) }; }, stdout: out.write, stderr: out.write }), 0);
+  assert.equal(factories, 1);
+  assert.equal(requests.length, 2);
 });
 
 test("batches independent questions per file with empty state and never sends source paths or target content", async (t) => {

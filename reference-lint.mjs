@@ -50,15 +50,37 @@ function localMarkdownTarget(raw) {
   return { path: decoded, target: raw };
 }
 
-function lineFor(lines, start, end, needles) {
-  for (let index = start; index < Math.min(end, lines.length); index++) if (needles.some((needle) => needle && lines[index].includes(needle))) return index + 1;
-  return start + 1;
+function lineAtOffset(span, startLine, offset) {
+  return startLine + 1 + (span.slice(0, Math.max(0, offset)).match(/\n/g)?.length ?? 0);
 }
 
-function sourceLinkTargets(span) {
-  const targets = [];
-  for (const match of span.matchAll(/\]\(\s*(?:<([^>\n]+)>|([^\s)]+))/g)) targets.push(match[1] ?? match[2]);
-  return targets;
+function locateLink(span, cursor, normalizedTarget, text) {
+  const candidates = [];
+  const inlinePattern = /!?\[([^\]]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))/gs;
+  inlinePattern.lastIndex = cursor;
+  for (const match of span.matchAll(inlinePattern)) {
+    const target = match[2] ?? match[3];
+    if (md.normalizeLink(target) === normalizedTarget) candidates.push({ offset: match.index + (match[0].startsWith("!") ? 1 : 0), end: match.index + match[0].length, rank: 0, target });
+  }
+  const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (escapedText) {
+    const referencePattern = new RegExp(`\\[${escapedText}\\](?:\\[[^\\]]*\\])?`, "g");
+    referencePattern.lastIndex = cursor;
+    const match = referencePattern.exec(span);
+    if (match) candidates.push({ offset: match.index, end: referencePattern.lastIndex, rank: 1, target: normalizedTarget });
+  }
+  const autolink = `<${normalizedTarget}>`;
+  const autolinkOffset = span.indexOf(autolink, cursor);
+  if (autolinkOffset !== -1) candidates.push({ offset: autolinkOffset, end: autolinkOffset + autolink.length, rank: 0, target: normalizedTarget });
+  return candidates.sort((left, right) => left.offset - right.offset || left.rank - right.rank || left.end - right.end)[0] ?? { offset: cursor, end: cursor, target: normalizedTarget };
+}
+
+function locateCode(span, cursor, child) {
+  const wrapped = `${child.markup}${child.content}${child.markup}`;
+  const wrappedOffset = span.indexOf(wrapped, cursor);
+  if (wrappedOffset !== -1) return { offset: wrappedOffset, end: wrappedOffset + wrapped.length };
+  const contentOffset = span.indexOf(child.content, cursor);
+  return contentOffset === -1 ? { offset: cursor, end: cursor } : { offset: contentOffset, end: contentOffset + child.content.length };
 }
 
 export function extractReferenceOccurrences(source, sourcePath = "document.md") {
@@ -68,6 +90,8 @@ export function extractReferenceOccurrences(source, sourcePath = "document.md") 
   const occurrences = [];
   let heading = "";
   const listItems = [];
+  const tableRows = [];
+  const blockCursors = new Map();
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
     if (token.type === "heading_open") {
@@ -77,30 +101,36 @@ export function extractReferenceOccurrences(source, sourcePath = "document.md") 
     }
     if (token.type === "list_item_open") listItems.push(token.map);
     if (token.type === "list_item_close") listItems.pop();
-    if (token.type !== "inline" || !token.map) continue;
-    const blockMap = listItems.at(-1) ?? token.map;
-    const span = lines.slice(blockMap[0], blockMap[1]).join("\n").trim();
+    if (token.type === "tr_open") tableRows.push(token.map);
+    if (token.type === "tr_close") tableRows.pop();
+    if (token.type !== "inline") continue;
+    const blockMap = listItems.at(-1) ?? token.map ?? tableRows.at(-1);
+    if (!blockMap) continue;
+    const rawSpan = lines.slice(blockMap[0], blockMap[1]).join("\n");
+    const span = rawSpan.trim();
+    const cursorKey = `${blockMap[0]}:${blockMap[1]}`;
+    let sourceCursor = blockCursors.get(cursorKey) ?? 0;
     const children = token.children ?? [];
-    const rawTargets = sourceLinkTargets(span);
-    let rawTargetIndex = 0;
     for (let childIndex = 0; childIndex < children.length; childIndex++) {
       const child = children[childIndex];
       if (child.type === "link_open") {
         const normalizedTarget = child.attrGet("href");
-        const candidateIndex = rawTargets.findIndex((candidate, candidateIndex) => candidateIndex >= rawTargetIndex && md.normalizeLink(candidate) === normalizedTarget);
-        const target = candidateIndex === -1 ? normalizedTarget : rawTargets[candidateIndex];
-        if (candidateIndex !== -1) rawTargetIndex = candidateIndex + 1;
-        const local = localMarkdownTarget(target);
-        if (!local) continue;
         let text = "";
         for (let cursor = childIndex + 1; cursor < children.length && children[cursor].type !== "link_close"; cursor++) text += children[cursor].content ?? "";
-        occurrences.push({ kind: "link", sourcePath, line: lineFor(lines, token.map[0], token.map[1], [target, text]), heading, span, text, target, path: local.path });
+        const located = locateLink(rawSpan, sourceCursor, normalizedTarget, text);
+        sourceCursor = located.end;
+        const local = localMarkdownTarget(located.target);
+        if (!local) continue;
+        occurrences.push({ kind: "link", sourcePath, line: lineAtOffset(rawSpan, blockMap[0], located.offset), heading, span, text, target: located.target, path: local.path });
       } else if (child.type === "code_inline") {
+        const located = locateCode(rawSpan, sourceCursor, child);
+        sourceCursor = located.end;
         const local = localMarkdownTarget(child.content);
         if (!local) continue;
-        occurrences.push({ kind: "backtick", sourcePath, line: lineFor(lines, token.map[0], token.map[1], [child.content]), heading, span, text: child.content, target: child.content, path: local.path });
+        occurrences.push({ kind: "backtick", sourcePath, line: lineAtOffset(rawSpan, blockMap[0], located.offset), heading, span, text: child.content, target: child.content, path: local.path });
       }
     }
+    blockCursors.set(cursorKey, sourceCursor);
   }
   return occurrences;
 }
@@ -122,8 +152,14 @@ function validateResponse(response, questionIds) {
   return results;
 }
 
-export async function runReferenceLint({ root, client, stdout = console.log, stderr = console.error }) {
+export async function runReferenceLint({ root, client, clientFactory, stdout = console.log, stderr = console.error }) {
   let fileCount = 0, occurrenceCount = 0, requestCount = 0, inputTokens = 0, outputTokens = 0;
+  let clientPromise;
+  const getClient = async () => {
+    if (client) return client;
+    clientPromise ??= Promise.resolve().then(() => clientFactory());
+    return clientPromise;
+  };
   try {
     const files = [];
     const missingLinks = [];
@@ -160,7 +196,7 @@ export async function runReferenceLint({ root, client, stdout = console.log, std
         }
       });
       if (Object.keys(questions).length === 0) continue;
-      const response = await client.systemOne({ model: REFERENCE_MODEL, state: "", questions });
+      const response = await (await getClient()).systemOne({ model: REFERENCE_MODEL, state: "", questions });
       const results = validateResponse(response, Object.keys(questions));
       requestCount++;
       inputTokens += response.usage.input_tokens;
@@ -192,18 +228,16 @@ export async function runReferenceLint({ root, client, stdout = console.log, std
   }
 }
 
-async function main() {
-  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  let client;
-  try {
+export async function main({
+  root = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+  createClient = async () => {
     const { TypeSafeClient } = await import("@typesafe-ai/sdk");
-    client = new TypeSafeClient({ defaultModel: REFERENCE_MODEL });
-  } catch (error) {
-    console.error(`ERROR ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
-    return;
-  }
-  process.exitCode = await runReferenceLint({ root, client });
+    return new TypeSafeClient({ defaultModel: REFERENCE_MODEL });
+  },
+  stdout = console.log,
+  stderr = console.error,
+} = {}) {
+  return runReferenceLint({ root, clientFactory: createClient, stdout, stderr });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
