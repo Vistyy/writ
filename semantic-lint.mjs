@@ -2,58 +2,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { QUESTION_CONTRACTS, runtimeQuestions, suppressedQuestionIds } from "./question-contracts.mjs";
 
 export const MODEL = "jev-1.13.0";
-export const QUESTIONS = Object.freeze({
-  capability_is_stated: {
-    type: "noul",
-    instructions: "Do `skill.name` and `skill.description` state what capability this skill provides?",
-    criteria: {
-      true: "They state an action the skill performs, a judgment it makes, knowledge it supplies, or an outcome it produces.",
-      false: "They state only a topic, persona, aspiration, or invocation condition without saying what the skill contributes.",
-    },
-  },
-  capability_is_specific: {
-    type: "noul",
-    instructions: "Do `skill.name` and `skill.description` identify a capability specific enough to distinguish this skill from a generic assistant?",
-    criteria: {
-      true: "They identify a bounded action, judgment, knowledge, or outcome.",
-      false: "They provide only generic help, guidance, expertise, quality improvement, a topic, persona, aspiration, or invocation condition.",
-    },
-  },
-  activation_is_stated: {
-    type: "noul",
-    instructions: "Do `skill.name` and `skill.description` identify at least one task, input, artifact, event, or condition in which this skill is relevant?",
-    criteria: {
-      true: "They name a recognizable task, input, artifact, event, or condition for using the skill.",
-      false: "They provide no activation information, or only circular wording such as 'when needed', 'when appropriate', or 'when using this skill'.",
-    },
-  },
-  activation_is_specific: {
-    type: "noul",
-    instructions: "Do `skill.name` and `skill.description` identify an activation condition specific enough for an agent to decide whether a user request should invoke this skill?",
-    criteria: {
-      true: "They identify a recognizable user intent, task, input, artifact, event, or condition that makes the skill relevant.",
-      false: "They name only a broad domain or category, or use vague or circular activation wording.",
-    },
-  },
-  routing_metadata_is_focused: {
-    type: "noul",
-    instructions: "Do `skill.name` and `skill.description` stay focused on identifying the skill's capability and deciding whether it is relevant?",
-    criteria: {
-      true: "They contain capability, activation conditions, meaningful non-matches, or brief domain context needed to distinguish the skill.",
-      false: "They tell the invoked agent how to do the work, such as directing it to read documentation, run commands, follow steps, or apply an implementation method, or include extended examples or rationale not needed for routing.",
-    },
-  },
-});
+export const QUESTIONS = runtimeQuestions();
 
-const ASPECTS = [
-  ["capability_is_stated", "State the action, judgment, knowledge, or outcome this skill provides."],
-  ["capability_is_specific", "Name a bounded action, judgment, knowledge, or outcome for this capability."],
-  ["activation_is_stated", "Name a concrete task, input, artifact, event, or condition where this skill is relevant."],
-  ["activation_is_specific", "Identify a recognizable user intent, task, input, artifact, event, or condition that triggers this skill."],
-  ["routing_metadata_is_focused", "Keep the description to capability and routing; move post-invocation procedure into the skill body."],
-];
+const ASPECTS = QUESTION_CONTRACTS.map(({ id, outcomes }) => [id, outcomes]);
 
 export async function discoverSkills(root) {
   const found = [];
@@ -122,14 +76,12 @@ function diagnostics(answers) {
     return [id, { probability: answer.noul, classification: classify(answer.noul) }];
   }));
 
-  const suppressed = new Set();
-  if (results.capability_is_stated.classification === "finding") suppressed.add("capability_is_specific");
-  if (results.activation_is_stated.classification === "finding") suppressed.add("activation_is_specific");
-  const issues = ASPECTS.flatMap(([id, action]) => {
+  const suppressed = suppressedQuestionIds(results);
+  const issues = ASPECTS.flatMap(([id, outcomes]) => {
     const result = results[id];
     return result.classification === "pass" || suppressed.has(id)
       ? []
-      : [{ id, action, ...result }];
+      : [{ id, action: outcomes[result.classification].diagnostic, ...result }];
   });
   return { issues, results };
 }

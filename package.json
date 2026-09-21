@@ -6,7 +6,8 @@
   "scripts": {
     "check": "markdownlint-cli2 --config .markdownlint-cli2.mjs",
     "check:semantic": "node semantic-lint.mjs",
-    "test": "node --test semantic-lint.test.mjs"
+    "check:questions": "node question-check.mjs",
+    "test": "node --test *.test.mjs"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "0.6.0",

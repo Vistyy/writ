@@ -30,4 +30,18 @@ TYPESAFE_API_KEY=... pnpm check:semantic
 
 Five independent judgments check whether capability and activation guidance are each present and specific, and whether the routing metadata stays focused on pre-invocation information rather than procedure that belongs in the skill body. Findings and uncertain results are printed with raw probabilities as advisory diagnostics and exit successfully. Invalid applicable metadata, missing credentials, provider failures, and a returned model identity other than exactly `jev-1.13.0` exit nonzero. The final receipt reports the returned model identity, aggregate input/output tokens, and evaluated/skipped counts.
 
-`pnpm test` uses a fake client and makes no paid or live requests.
+`pnpm test` uses fake clients and makes no paid or live requests.
+
+## Opt-in question-contract check
+
+```sh
+TYPESAFE_API_KEY=... pnpm check:questions
+```
+
+`check:questions` is a separate opt-in, paid, networked validation of the five question contracts used by `check:semantic`. It first validates the contract and suppression-dependency structure deterministically. It then runs concrete labeled calibration cases against the actual runtime Noul questions, including focused positive metadata and isolated capability, activation, specificity, and routing-focus failures.
+
+The paid check also evaluates only the retained question-design judgments: whether each question needs model judgment, whether each has one semantic axis, whether all ten question pairs are materially distinct, and whether the two declared suppression dependencies are semantically valid. It uses the exact pinned model `jev-1.13.0`, verifies returned model identity and token usage, prints every raw probability and classification, and finishes with an aggregate receipt.
+
+Calibration labels are enforced: a contrary result or an unknown result for an expected pass/finding exits nonzero. Question-design findings and unknowns are advisory. Provider, response-shape, model-identity, token-usage, and answer errors are fatal.
+
+These concrete calibration cases test actual Noul behavior for known examples; unseen holdout cases remain necessary before treating the contracts as broadly calibrated. This command does not add or evaluate `target_content_must_be_consulted`.
