@@ -53,6 +53,7 @@ export const MARKDOWNLINT_OPTIONS = Object.freeze({
   ignores: [],
   markdownItPlugins: [],
   noBanner: true,
+  noInlineConfig: true,
   noProgress: true,
   overrides: [],
 });

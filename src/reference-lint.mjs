@@ -242,4 +242,3 @@ export async function main({
 } = {}) {
   return runReferenceLint({ root, clientFactory: createClient, stdout, stderr });
 }
-

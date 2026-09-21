@@ -25,7 +25,7 @@ For `check`, `routing`, and `references`, `--root` defaults to the caller's curr
 
 ### `writ check`
 
-This deterministic, offline command runs markdownlint-cli2 programmatically with Writ-owned configuration. Consumer markdownlint configuration is ignored. It scans exactly these locations when present:
+This deterministic, offline command runs markdownlint-cli2 programmatically with Writ-owned configuration. Consumer markdownlint configuration and in-document enable/disable directives are ignored, so neither can change the fixed rule set. It scans exactly these locations when present:
 
 - root `AGENTS.md`, `SYSTEM.md`, and `APPEND_SYSTEM.md`
 - `skills/**/*.md`

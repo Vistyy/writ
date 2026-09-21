@@ -63,11 +63,12 @@ test("markdown check passes Writ-owned scope and configuration programmatically"
   assert.equal(calls[0].optionsOverride.config.default, false);
   assert.equal(calls[0].optionsOverride.config.MD040, true);
   assert.equal(calls[0].optionsOverride.config["relative-links"], true);
+  assert.equal(calls[0].optionsOverride.noInlineConfig, true);
 });
 
-test("deterministic check scans only the documented scope and ignores consumer configuration", async (t) => {
+test("deterministic check scans only the documented scope and cannot be weakened by consumers", async (t) => {
   const root = await fixture({
-    ".markdownlint-cli2.mjs": "export default { config: { default: true, MD013: true } };\n",
+    ".markdownlint-cli2.mjs": "export default { config: { default: false, MD011: false, MD013: true } };\n",
     "AGENTS.md": "# Instructions\n\nA deliberately very long line that would violate consumer-enabled line length but is not part of Writ's fixed rules because consumer configuration is ignored.\n",
     "skills/a/SKILL.md": "---\nname: a\ndescription: A skill.\n---\n# Skill\n\n```text\nok\n```\n",
     "other/bad.md": "# Jump\n\n### Skipped\n",
@@ -76,7 +77,14 @@ test("deterministic check scans only the documented scope and ignores consumer c
   const out = output();
   assert.equal(await runMarkdownCheck({ root, stdout: out.write, stderr: out.write }), 0);
 
-  await writeFile(join(root, "AGENTS.md"), "# Instructions\n\n(text)[missing.md]\n");
-  assert.equal(await runMarkdownCheck({ root, stdout: out.write, stderr: out.write }), 1);
-  assert(out.lines.some((line) => line.includes("MD011")));
+  for (const source of [
+    "# Instructions\n\n(text)[missing.md]\n",
+    "# Instructions\n\n<!-- markdownlint-disable MD011 -->\n\n(text)[missing.md]\n",
+    "<!-- markdownlint-disable-file MD011 -->\n\n# Instructions\n\n(text)[missing.md]\n",
+  ]) {
+    out.lines.length = 0;
+    await writeFile(join(root, "AGENTS.md"), source);
+    assert.equal(await runMarkdownCheck({ root, stdout: out.write, stderr: out.write }), 1);
+    assert(out.lines.some((line) => line.includes("MD011")));
+  }
 });
