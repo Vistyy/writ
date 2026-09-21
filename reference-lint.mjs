@@ -111,9 +111,11 @@ export function extractReferenceOccurrences(source, sourcePath = "document.md") 
     const cursorKey = `${blockMap[0]}:${blockMap[1]}`;
     let sourceCursor = blockCursors.get(cursorKey) ?? 0;
     const children = token.children ?? [];
+    let linkDepth = 0;
     for (let childIndex = 0; childIndex < children.length; childIndex++) {
       const child = children[childIndex];
       if (child.type === "link_open") {
+        linkDepth++;
         const normalizedTarget = child.attrGet("href");
         let text = "";
         for (let cursor = childIndex + 1; cursor < children.length && children[cursor].type !== "link_close"; cursor++) text += children[cursor].content ?? "";
@@ -122,7 +124,9 @@ export function extractReferenceOccurrences(source, sourcePath = "document.md") 
         const local = localMarkdownTarget(located.target);
         if (!local) continue;
         occurrences.push({ kind: "link", sourcePath, line: lineAtOffset(rawSpan, blockMap[0], located.offset), heading, span, text, target: located.target, path: local.path });
-      } else if (child.type === "code_inline") {
+      } else if (child.type === "link_close") {
+        linkDepth = Math.max(0, linkDepth - 1);
+      } else if (child.type === "code_inline" && linkDepth === 0) {
         const located = locateCode(rawSpan, sourceCursor, child);
         sourceCursor = located.end;
         const local = localMarkdownTarget(child.content);

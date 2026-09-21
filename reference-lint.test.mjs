@@ -77,6 +77,13 @@ test("extracts table-cell links and backticks with row spans and heading context
   ]);
 });
 
+test("does not extract code-formatted Markdown labels separately from parsed links", () => {
+  const source = "External [`external.md`](https://example.com/external.md). Local [`docs/guide.md`](docs/guide.md).\n";
+  assert.deepEqual(extractReferenceOccurrences(source).map(({ kind, text, target, path }) => ({ kind, text, target, path })), [
+    { kind: "link", text: "docs/guide.md", target: "docs/guide.md", path: "docs/guide.md" },
+  ]);
+});
+
 test("resolves targets relative to source and strips fragments", () => {
   assert.equal(resolveOccurrenceTarget("/repo/skills/x/SKILL.md", { path: "../shared.md#part" }), "/repo/skills/shared.md");
 });
@@ -136,6 +143,23 @@ test("CLI boundary defers client construction for zero work and constructs it on
   assert.equal(await main({ root, createClient: async () => { factories++; return { systemOne: async (request) => (requests.push(request), response(request)) }; }, stdout: out.write, stderr: out.write }), 0);
   assert.equal(factories, 1);
   assert.equal(requests.length, 2);
+});
+
+test("code-formatted link labels produce zero external requests and one local-link request", async (t) => {
+  const externalRoot = await fixture({ "AGENTS.md": "Read [`external.md`](https://example.com/external.md).\n" });
+  t.after(() => rm(externalRoot, { recursive: true, force: true }));
+  let externalCalls = 0; const externalOut = output();
+  assert.equal(await runReferenceLint({ root: externalRoot, client: { systemOne: async () => { externalCalls++; } }, stdout: externalOut.write, stderr: externalOut.write }), 0);
+  assert.equal(externalCalls, 0);
+  assert.equal(externalOut.lines.at(-1), "RECEIPT model=none files=1 occurrences=0 requests=0 input_tokens=0 output_tokens=0");
+
+  const localRoot = await fixture({ "AGENTS.md": "Read [`guide.md`](guide.md).\n", "guide.md": "ok\n" });
+  t.after(() => rm(localRoot, { recursive: true, force: true }));
+  const localRequests = []; const localOut = output();
+  assert.equal(await runReferenceLint({ root: localRoot, client: { systemOne: async (request) => (localRequests.push(request), response(request)) }, stdout: localOut.write, stderr: localOut.write }), 0);
+  assert.equal(localRequests.length, 1);
+  assert.equal(Object.keys(localRequests[0].questions).length, 2);
+  assert.match(localOut.lines.at(-1), /files=1 occurrences=1 requests=1 input_tokens=12 output_tokens=4/);
 });
 
 test("batches independent questions per file with empty state and never sends source paths or target content", async (t) => {
