@@ -1,0 +1,43 @@
+{
+  "name": "@syzom/writ",
+  "version": "0.1.0",
+  "description": "Deterministic and semantic verification for instructions agents act on",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vistyy/writ.git"
+  },
+  "homepage": "https://github.com/Vistyy/writ#readme",
+  "bugs": {
+    "url": "https://github.com/Vistyy/writ/issues"
+  },
+  "bin": {
+    "writ": "bin/writ.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check": "pnpm check:syntax && pnpm test && node scripts/verify-package.mjs && node scripts/smoke-packed.mjs"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
+    "markdown-it": "15.0.2",
+    "markdownlint-cli2": "0.23.3",
+    "markdownlint-rule-relative-links": "5.1.2",
+    "yaml": "2.8.2"
+  }
+}
