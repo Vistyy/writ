@@ -15,7 +15,7 @@ try {
   await mkdir(repository, { recursive: true });
   const packed = JSON.parse(execFileSync("pnpm", ["pack", "--pack-destination", packDir, "--json"], { cwd: root, encoding: "utf8" }));
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, dependencies: { "@syzom/writ": `file:${packed.filename}` } }, null, 2));
-  execFileSync("pnpm", ["install", "--offline", "--ignore-scripts"], { cwd: consumer, stdio: "pipe" });
+  execFileSync("pnpm", ["install", "--prefer-offline", "--ignore-scripts"], { cwd: consumer, stdio: "pipe" });
   await writeFile(join(repository, "AGENTS.md"), "# Consumer instructions\n");
 
   const run = (...args) => spawnSync("pnpm", ["exec", "writ", ...args], { cwd: consumer, encoding: "utf8" });
