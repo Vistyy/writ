@@ -8,6 +8,15 @@ import {
   validateQuestionContracts,
 } from "./question-contracts.mjs";
 import { MODEL, QUESTIONS, classify } from "./semantic-lint.mjs";
+import {
+  REFERENCE_CALIBRATION_CASES,
+  REFERENCE_CONTRACTS,
+  REFERENCE_DEPENDENCIES,
+  consultationQuestion,
+  expectedExistingQuestion,
+  triggerQuestion,
+  validateReferenceContracts,
+} from "./reference-contracts.mjs";
 
 export const CONTRACT_META_QUESTIONS = Object.freeze({
   model_judgment_is_needed: {
@@ -51,8 +60,8 @@ export const DEPENDENCY_QUESTION = Object.freeze({
 });
 
 function publicContract(contract) {
-  const { id, intendedAnswer, instructions, criteria, state, outcomes } = contract;
-  return { id, primitive: "noul", intendedAnswer, instructions, criteria, state, outcomes };
+  const { id, primitive, model, intendedAnswer, instructions, criteria, state, outcomes } = contract;
+  return { id, primitive, ...(model ? { model } : {}), intendedAnswer, instructions, criteria, state, outcomes };
 }
 
 function pairs(items) {
@@ -66,16 +75,17 @@ function pairs(items) {
 function validateResponse(response, questionIds) {
   if (response?.model !== MODEL) throw new Error(`response model identity must be exactly ${MODEL}; received ${String(response?.model)}`);
   if (!Number.isInteger(response.usage?.input_tokens) || response.usage.input_tokens < 0 || !Number.isInteger(response.usage?.output_tokens) || response.usage.output_tokens < 0) throw new Error("response omitted token usage or returned invalid counts");
+  if (!response.answers || typeof response.answers !== "object" || Array.isArray(response.answers) || JSON.stringify(Object.keys(response.answers).sort()) !== JSON.stringify([...questionIds].sort())) throw new Error("response answers do not exactly match requested questions");
   const results = {};
   for (const id of questionIds) {
     const answer = response.answers?.[id];
-    if (answer?.type !== "noul") throw new Error(`missing or invalid Noul answer for ${id}`);
+    if (answer?.type !== "noul" || JSON.stringify(Object.keys(answer).sort()) !== JSON.stringify(["noul", "type"])) throw new Error(`missing or invalid Noul answer for ${id}`);
     results[id] = { probability: answer.noul, classification: classify(answer.noul) };
   }
   return results;
 }
 
-export async function runQuestionCheck({ client, stdout = console.log, stderr = console.error, contracts = QUESTION_CONTRACTS, dependencies = QUESTION_DEPENDENCIES, calibrationCases = CALIBRATION_CASES }) {
+export async function runQuestionCheck({ client, stdout = console.log, stderr = console.error, contracts = QUESTION_CONTRACTS, dependencies = QUESTION_DEPENDENCIES, calibrationCases = CALIBRATION_CASES, referenceContracts = REFERENCE_CONTRACTS, referenceDependencies = REFERENCE_DEPENDENCIES, referenceCalibrationCases = REFERENCE_CALIBRATION_CASES }) {
   let inputTokens = 0;
   let outputTokens = 0;
   let requests = 0;
@@ -94,8 +104,9 @@ export async function runQuestionCheck({ client, stdout = console.log, stderr = 
 
   try {
     validateQuestionContracts(contracts, dependencies);
+    validateReferenceContracts(referenceContracts, referenceDependencies);
     const questions = contracts === QUESTION_CONTRACTS ? QUESTIONS : runtimeQuestions(contracts);
-    stdout(`VALID contracts=${contracts.length} dependencies=${dependencies.length}`);
+    stdout(`VALID contracts=${contracts.length} dependencies=${dependencies.length} reference_contracts=${referenceContracts.length} reference_dependencies=${referenceDependencies.length}`);
 
     for (const calibration of calibrationCases) {
       const results = await evaluate(`calibration:${calibration.id}`, calibration.state, questions);
@@ -107,6 +118,20 @@ export async function runQuestionCheck({ client, stdout = console.log, stderr = 
             calibrationMismatches++;
             stderr(`MISMATCH calibration:${calibration.id} ${id} expected=${expectedClassification} actual=${results[id].classification} p=${results[id].probability}`);
           }
+        }
+      }
+    }
+
+    for (const calibration of referenceCalibrationCases) {
+      const occurrence = { heading: calibration.heading ?? "", span: calibration.span, text: calibration.text ?? calibration.path, target: calibration.path, path: calibration.path };
+      const referenceQuestions = calibration.kind === "missing"
+        ? { target_is_expected_to_exist: expectedExistingQuestion(occurrence) }
+        : { target_content_must_be_consulted: consultationQuestion(occurrence), loading_trigger_is_explicit: triggerQuestion(occurrence) };
+      const results = await evaluate(`reference-calibration:${calibration.id}`, "", referenceQuestions);
+      for (const [id, expectedClassification] of Object.entries(calibration.expected)) {
+        if (results[id]?.classification !== expectedClassification) {
+          calibrationMismatches++;
+          stderr(`MISMATCH reference-calibration:${calibration.id} ${id} expected=${expectedClassification} actual=${results[id]?.classification ?? "missing"} p=${results[id]?.probability ?? "missing"}`);
         }
       }
     }
@@ -132,8 +157,22 @@ export async function runQuestionCheck({ client, stdout = console.log, stderr = 
       }, DEPENDENCY_QUESTION);
       advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
     }
+    for (const contract of referenceContracts) {
+      const results = await evaluate(`reference-contract:${contract.id}`, { subject: publicContract(contract) }, CONTRACT_META_QUESTIONS);
+      advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
+    }
+    for (const [left, right] of pairs(referenceContracts)) {
+      const results = await evaluate(`reference-pair:${left.id}:${right.id}`, { question_a: publicContract(left), question_b: publicContract(right) }, DISTINCTNESS_QUESTION);
+      advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
+    }
+    for (const dependency of referenceDependencies) {
+      const source = referenceContracts.find(({ id }) => id === dependency.source);
+      const consumed = referenceContracts.find(({ id }) => id === dependency.consumes);
+      const results = await evaluate(`reference-dependency:${dependency.source}:${dependency.consumes}`, { upstream: publicContract(source), downstream: publicContract(consumed), relation: dependency }, DEPENDENCY_QUESTION);
+      advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
+    }
 
-    stdout(`RECEIPT model=${MODEL} input_tokens=${inputTokens} output_tokens=${outputTokens} requests=${requests} calibrations=${calibrationCases.length} contract_meta=${contracts.length * 2} pairs=${pairs(contracts).length} dependencies=${dependencies.length} advisory_meta=${advisoryMeta} calibration_mismatches=${calibrationMismatches}`);
+    stdout(`RECEIPT model=${MODEL} input_tokens=${inputTokens} output_tokens=${outputTokens} requests=${requests} calibrations=${calibrationCases.length} reference_calibrations=${referenceCalibrationCases.length} contract_meta=${contracts.length * 2} pairs=${pairs(contracts).length} dependencies=${dependencies.length} reference_contract_meta=${referenceContracts.length * 2} reference_pairs=${pairs(referenceContracts).length} reference_dependencies=${referenceDependencies.length} advisory_meta=${advisoryMeta} calibration_mismatches=${calibrationMismatches}`);
     return calibrationMismatches === 0 ? 0 : 1;
   } catch (error) {
     stderr(`ERROR ${error instanceof Error ? error.message : String(error)}`);

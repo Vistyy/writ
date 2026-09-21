@@ -1,47 +1,58 @@
 # Instruction lint
 
-Local Markdown linting for the agent instructions owned by this repository.
+Checks for the Markdown instructions owned by this repository.
 
-The configured scope includes `AGENTS.md`, optional Pi system-prompt files, skills and their references, and user skills.
-
-`markdownlint-cli2` supplies the command-line runner and the underlying `markdownlint` parser and built-in rules. `markdownlint-rule-relative-links` adds filesystem and cross-file-fragment validation.
-
-The enabled rules and their purposes are documented inline in `.markdownlint-cli2.mjs`. The complete built-in catalog is in the [markdownlint rule documentation](https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md).
-
-Relative Markdown links and images must resolve to local files, and fragments targeting Markdown files must resolve to headings or anchors. External links and links inside fenced examples are not checked.
-
-`default: false` disables markdownlint's normal behavior of enabling every built-in rule. The configuration then opts into only the checks above, avoiding unrelated formatting and house-style rules.
+## Commands
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
-```
-
-`pnpm check` is the deterministic Markdown check. It makes no model requests and does not require `TYPESAFE_API_KEY`.
-
-## Advisory semantic check
-
-```sh
 TYPESAFE_API_KEY=... pnpm check:semantic
-```
-
-`check:semantic` is a separate paid, networked check. It finds nested `SKILL.md` files only under the repository's top-level `skills/` and `user-skills/` instruction roots, skips skills whose YAML frontmatter sets `disable-model-invocation: true`, and evaluates implicit-routing metadata with the exact pinned model `jev-1.13.0`. Either instruction root may be absent. Each applicable skill causes one request containing only its frontmatter `name` and `description`; skill bodies, paths, other frontmatter, and repository context are not sent.
-
-Five independent judgments check whether capability and activation guidance are each present and specific, and whether the routing metadata stays focused on pre-invocation information rather than procedure that belongs in the skill body. Findings and uncertain results are printed with raw probabilities as advisory diagnostics and exit successfully. Invalid applicable metadata, missing credentials, provider failures, and a returned model identity other than exactly `jev-1.13.0` exit nonzero. The final receipt reports the returned model identity, aggregate input/output tokens, and evaluated/skipped counts.
-
-`pnpm test` uses fake clients and makes no paid or live requests.
-
-## Opt-in question-contract check
-
-```sh
+TYPESAFE_API_KEY=... pnpm check:references
 TYPESAFE_API_KEY=... pnpm check:questions
 ```
 
-`check:questions` is a separate opt-in, paid, networked validation of the five question contracts used by `check:semantic`. It first validates the contract and suppression-dependency structure deterministically. It then runs concrete labeled calibration cases against the actual runtime Noul questions, including focused positive metadata and targeted capability, activation, specificity, and routing-focus failures.
+- `pnpm check` is the deterministic Markdown check. It makes no model requests.
+- `pnpm check:semantic` is the paid routing-semantic check for skill frontmatter.
+- `pnpm check:references` is the separate paid reference-semantic check.
+- `pnpm check:questions` is the separate paid calibration and question-contract check for both semantic suites.
+- `pnpm test` uses fake clients and makes no network requests.
 
-The paid check also evaluates only the retained question-design judgments: whether each question needs model judgment, whether each has one semantic axis, whether all ten question pairs are materially distinct, and whether the two declared suppression dependencies are semantically valid. It uses the exact pinned model `jev-1.13.0`, verifies returned model identity and token usage, prints every raw probability and classification, and finishes with an aggregate receipt.
+## Deterministic Markdown check
 
-Calibration labels are enforced: a contrary result or an unknown result for an expected pass/finding exits nonzero. Question-design findings and unknowns are advisory. Provider, response-shape, model-identity, token-usage, and answer errors are fatal.
+`markdownlint-cli2` provides the runner, parser, and enabled built-in rules. `markdownlint-rule-relative-links` validates local files and Markdown fragments. The exact rules and scope are documented in `.markdownlint-cli2.mjs`; unrelated formatting and house-style rules remain disabled.
 
-These concrete calibration cases test actual Noul behavior for known examples; unseen holdout cases remain necessary before treating the contracts as broadly calibrated. This command does not add or evaluate `target_content_must_be_consulted`.
+## Routing semantic check
+
+`check:semantic` finds nested `SKILL.md` files only below top-level `skills/` and `user-skills/`. Either root may be absent. It skips frontmatter with `disable-model-invocation: true` and sends only `name` and `description` to exact model `jev-1.13.0`; bodies, paths, other frontmatter, and repository context are not sent.
+
+Five independent Noul judgments cover capability and activation presence/specificity plus routing focus. Findings and unknowns are advisory and exit successfully. Invalid metadata, provider failures, invalid responses or token usage, and model mismatch are fatal. The receipt reports model, token, evaluated, and skipped counts.
+
+## Reference semantic check
+
+`check:references` scans exactly these instruction-lint-owned Markdown locations when present:
+
+- root `AGENTS.md`, `SYSTEM.md`, and `APPEND_SYSTEM.md`
+- every `skills/**/*.md`
+- every `user-skills/**/*.md`
+
+It uses `markdown-it` parsed tokens and source maps to find relative local Markdown links and backticked relative `.md` paths. Fenced and indented code, frontmatter, external URLs, absolute URLs/paths, hash-only links, invalid targets, and non-path code such as literal `.md` are excluded. Targets resolve relative to the source file; fragments are retained for the semantic occurrence but stripped for filesystem existence checks. Diagnostics identify the local source path and line.
+
+All files and targets are checked deterministically before requests. A missing Markdown link is fatal and prevents every paid request. A missing backticked path is semantically judged for whether the instruction expects it to exist. Existing links and backticks receive the consultation and scoped-trigger judgments together. Independent questions for one source file are batched into one `systemOne` request using exact model `jev-1.13.0`.
+
+The privacy boundary is strict: shared request state is the empty string, local source paths and repository context are not sent, and referenced targets are checked with filesystem metadata rather than opened for an occurrence. No referenced target content is read or sent. Each generated question contains only its occurrence's heading, instruction span, exact link text/target, and relative path as applicable.
+
+Composition order is fixed:
+
+1. A missing backtick expected to exist produces a stale-reference advisory; intentional creation, generation, output, destination, rename-to, optional-if-present, and example uses are clean; unknown is advisory.
+2. For an existing target, a consultation finding suppresses the trigger result. A consultation unknown is advisory and gives no trigger conclusion.
+3. Only a consultation pass consumes the trigger result. A trigger finding advises stating when consultation is required; trigger unknown is advisory; trigger pass is clean.
+
+Semantic findings and unknowns are advisory and exit successfully. Parse, provider, exact-model, integer-token, answer-shape, probability, and deterministic missing-link failures exit nonzero. The exact receipt reports scanned file and occurrence counts, paid request count, and aggregate input/output tokens.
+
+## Question calibration
+
+`check:questions` first validates routing and reference contracts and their dependencies deterministically. It then runs each suite's actual generated runtime questions against its concrete calibration corpus. Reference cases protect ownership/direct-modification non-consultation; explicit before/when, compound, and heading-scoped triggers; bare and vague triggers; expected-existing ownership/read/update/move-from; and intentional create/generate/output/rename-to/if-present/example paths.
+
+Calibration mismatches and unknowns are fatal. Meta findings and unknowns are advisory. The reference suite retains only model-judgment necessity, one-semantic-axis, its three pairwise-distinctness checks, and consultation-to-trigger dependency validity. Routing/reference pairs are never compared. The command verifies exact model identity, nonnegative integer token usage, exact Noul answer shape, and probability bounds, then prints an aggregate receipt.
