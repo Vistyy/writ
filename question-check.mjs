@@ -12,18 +12,18 @@ import { MODEL, QUESTIONS, classify } from "./semantic-lint.mjs";
 export const CONTRACT_META_QUESTIONS = Object.freeze({
   model_judgment_is_needed: {
     type: "noul",
-    instructions: "Does deciding this question require semantic model judgment rather than a deterministic structural check?",
+    instructions: "Read the subject contract in `state.subject`. Would answering the subject question correctly require semantic interpretation of natural language (meaning, intent, aboutness, specificity, similarity), rather than an exact deterministic computation such as string matching, arithmetic, or schema validation that should stay in code?",
     criteria: {
-      true: "The answer depends on interpreting the meaning of natural-language state against the question criteria.",
-      false: "The answer can be established exactly from syntax, types, equality, membership, or another deterministic rule.",
+      true: "Correct answers depend on interpreting the meaning of natural-language text; no exact deterministic computation decides the same predicate.",
+      false: "An exact deterministic computation (string match, arithmetic, schema or shape check) decides the predicate; asking a model adds no needed judgment.",
     },
   },
   judgment_has_one_semantic_axis: {
     type: "noul",
-    instructions: "Does this question ask for one coherent semantic judgment axis?",
+    instructions: "Read the subject contract in `state.subject`. Does the subject question ask exactly one independently-answerable judgment, where any realistic input receives its answer from a single semantic axis?",
     criteria: {
-      true: "Its instructions and criteria distinguish one concept whose positive and negative poles are coherent.",
-      false: "It combines independently variable concepts such that one answer could conceal disagreement between them.",
+      true: "Every realistic input is judged on one axis; there are no two independently variable subanswers collapsed into one answer.",
+      false: "Two or more independently variable subanswers (for example purpose versus trigger, or clarity versus completeness) are collapsed into one answer, so one input can be high on one subanswer and low on another with no coherent single answer.",
     },
   },
 });
@@ -31,10 +31,10 @@ export const CONTRACT_META_QUESTIONS = Object.freeze({
 export const DISTINCTNESS_QUESTION = Object.freeze({
   questions_are_materially_distinct: {
     type: "noul",
-    instructions: "Do these two questions evaluate materially distinct semantic judgments?",
+    instructions: "Read the two question contracts in `state.question_a` and `state.question_b`. Are they materially distinct: can realistic inputs receive different answers from the two questions, with the difference implying different fixes?",
     criteria: {
-      true: "A plausible state can satisfy one question and not the other because their decision boundaries differ.",
-      false: "They are paraphrases or have effectively the same decision boundary.",
+      true: "Realistic inputs can split the two answers, and the split implies different fixes; keeping both questions is justified.",
+      false: "The two questions always agree on realistic inputs, or any disagreement implies the same fix; they should be merged.",
     },
   },
 });
@@ -42,10 +42,10 @@ export const DISTINCTNESS_QUESTION = Object.freeze({
 export const DEPENDENCY_QUESTION = Object.freeze({
   dependency_is_semantically_valid: {
     type: "noul",
-    instructions: "Is this suppression dependency semantically valid for the two question contracts?",
+    instructions: "Read the declared dependency in `state`: `upstream` question, `downstream` question, and `relation`. Is the dependency semantically valid: does the downstream question refine the upstream question so that suppressing or conditioning the downstream on a negative upstream is sound?",
     criteria: {
-      true: "When the source receives the stated classification, reporting the suppressed question would be redundant, misleading, or less fundamental.",
-      false: "The suppressed question remains independently useful or the source classification does not justify suppressing it.",
+      true: "Downstream refines upstream (specificity, scope, or detail of the same construct); the declared relation is sound.",
+      false: "Downstream does not refine upstream, or the relation is unsound (for example conditioning on an unrelated question).",
     },
   },
 });
@@ -112,19 +112,23 @@ export async function runQuestionCheck({ client, stdout = console.log, stderr = 
     }
 
     for (const contract of contracts) {
-      const results = await evaluate(`contract:${contract.id}`, { questionContract: publicContract(contract) }, CONTRACT_META_QUESTIONS);
+      const results = await evaluate(`contract:${contract.id}`, { subject: publicContract(contract) }, CONTRACT_META_QUESTIONS);
       advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
     }
     for (const [left, right] of pairs(contracts)) {
-      const results = await evaluate(`pair:${left.id}:${right.id}`, { questionContracts: [publicContract(left), publicContract(right)] }, DISTINCTNESS_QUESTION);
+      const results = await evaluate(`pair:${left.id}:${right.id}`, {
+        question_a: publicContract(left),
+        question_b: publicContract(right),
+      }, DISTINCTNESS_QUESTION);
       advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
     }
     for (const dependency of dependencies) {
       const source = contracts.find(({ id }) => id === dependency.source);
       const suppressed = contracts.find(({ id }) => id === dependency.suppresses);
       const results = await evaluate(`dependency:${dependency.source}:${dependency.suppresses}`, {
-        dependency,
-        questionContracts: [publicContract(source), publicContract(suppressed)],
+        upstream: publicContract(source),
+        downstream: publicContract(suppressed),
+        relation: dependency,
       }, DEPENDENCY_QUESTION);
       advisoryMeta += Object.values(results).filter(({ classification }) => classification !== "pass").length;
     }

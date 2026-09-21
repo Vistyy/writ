@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CALIBRATION_CASES, QUESTION_CONTRACTS, QUESTION_DEPENDENCIES } from "./question-contracts.mjs";
 import { MODEL, QUESTIONS } from "./semantic-lint.mjs";
-import { runQuestionCheck } from "./question-check.mjs";
+import {
+  CONTRACT_META_QUESTIONS,
+  DEPENDENCY_QUESTION,
+  DISTINCTNESS_QUESTION,
+  runQuestionCheck,
+} from "./question-check.mjs";
 
 const answer = (noul) => ({ type: "noul", noul });
 const output = () => {
@@ -13,10 +18,10 @@ const output = () => {
 function successfulResponse(request, override = {}) {
   const probabilities = Object.fromEntries(Object.keys(request.questions).map((id) => [id, 0.9]));
   const description = request.state?.skill?.description ?? "";
-  if (description.startsWith("Use when a pull request")) probabilities.capability_is_stated = 0.1;
+  if (description.startsWith("Relevant to pull requests")) probabilities.capability_is_stated = 0.1;
   if (description.startsWith("Provides helpful guidance")) probabilities.capability_is_specific = 0.1;
-  if (description === "Compares two JSON schemas and reports incompatible field changes.") probabilities.activation_is_stated = 0.1;
-  if (description.endsWith("Use for software work.")) probabilities.activation_is_specific = 0.1;
+  if (description === "General expertise.") probabilities.activation_is_stated = 0.1;
+  if (description.endsWith("Use for technology.")) probabilities.activation_is_specific = 0.1;
   if (description.includes("First read every schema file")) probabilities.routing_metadata_is_focused = 0.1;
   return {
     model: MODEL,
@@ -25,6 +30,13 @@ function successfulResponse(request, override = {}) {
     ...override,
   };
 }
+
+test("question-design checks preserve the calibrated judgments", () => {
+  assert.match(CONTRACT_META_QUESTIONS.model_judgment_is_needed.instructions, /semantic interpretation of natural language/);
+  assert.match(CONTRACT_META_QUESTIONS.judgment_has_one_semantic_axis.instructions, /exactly one independently-answerable judgment/);
+  assert.match(DISTINCTNESS_QUESTION.questions_are_materially_distinct.instructions, /difference implying different fixes/);
+  assert.match(DEPENDENCY_QUESTION.dependency_is_semantically_valid.instructions, /downstream question refine the upstream question/);
+});
 
 test("question check sends bounded states, keeps paired meta judgments together, and prints a receipt", async () => {
   const requests = [];
@@ -43,7 +55,13 @@ test("question check sends bounded states, keeps paired meta judgments together,
   }
   for (const request of requests.slice(CALIBRATION_CASES.length, CALIBRATION_CASES.length + QUESTION_CONTRACTS.length)) {
     assert.deepEqual(Object.keys(request.questions), ["model_judgment_is_needed", "judgment_has_one_semantic_axis"]);
-    assert.deepEqual(Object.keys(request.state), ["questionContract"]);
+    assert.deepEqual(Object.keys(request.state), ["subject"]);
+  }
+  for (const request of requests.slice(CALIBRATION_CASES.length + QUESTION_CONTRACTS.length, -QUESTION_DEPENDENCIES.length)) {
+    assert.deepEqual(Object.keys(request.state), ["question_a", "question_b"]);
+  }
+  for (const request of requests.slice(-QUESTION_DEPENDENCIES.length)) {
+    assert.deepEqual(Object.keys(request.state), ["upstream", "downstream", "relation"]);
   }
   assert(requests.every((request) => request.model === MODEL));
   assert.doesNotMatch(JSON.stringify(requests), /skill body contents|repository path|PRIVATE|SECRET/);

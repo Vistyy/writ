@@ -96,7 +96,7 @@ export const CALIBRATION_CASES = Object.freeze([
   },
   {
     id: "capability_omitted_concrete_activation",
-    state: { skill: { name: "pull-request-time", description: "Use when a pull request changes a database migration." } },
+    state: { skill: { name: "database-migration-context", description: "Relevant to pull requests that change a database migration." } },
     expected: { finding: ["capability_is_stated"], pass: ["activation_is_stated", "activation_is_specific"] },
   },
   {
@@ -106,12 +106,12 @@ export const CALIBRATION_CASES = Object.freeze([
   },
   {
     id: "activation_omitted",
-    state: { skill: { name: "schema-diff", description: "Compares two JSON schemas and reports incompatible field changes." } },
-    expected: { pass: ["capability_is_stated", "capability_is_specific"], finding: ["activation_is_stated"] },
+    state: { skill: { name: "general-expert", description: "General expertise." } },
+    expected: { finding: ["activation_is_stated"] },
   },
   {
     id: "broad_activation",
-    state: { skill: { name: "schema-diff", description: "Compares two JSON schemas and reports incompatible field changes. Use for software work." } },
+    state: { skill: { name: "technology-helper", description: "Provides helpful guidance. Use for technology." } },
     expected: { pass: ["activation_is_stated"], finding: ["activation_is_specific"] },
   },
   {
